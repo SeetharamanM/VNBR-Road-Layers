@@ -149,6 +149,31 @@ def compute_merged_and_analysis(df, est_length=8000):
     return df_with_chain, merged_df, overlaps_df, gaps_df, merged_by_item
 
 
+def gap_length_by_chunk(gaps_df, est_length=8000, chunk_size=1000):
+    """For each Item and each chunk (0-1000, 1000-2000, ...), compute total gap length (m) in that chunk."""
+    if gaps_df.empty:
+        return pd.DataFrame(columns=["Item", "Chunk", "Chunk Start", "Gap Length (m)"])
+    rows = []
+    chunks = [(start, min(start + chunk_size, est_length)) for start in range(0, est_length, chunk_size)]
+    for item in gaps_df["Item"].unique():
+        item_gaps = gaps_df[gaps_df["Item"] == item]
+        for (c_start, c_end) in chunks:
+            length = 0
+            for _, row in item_gaps.iterrows():
+                gs, ge = row["Gap Start"], row["Gap End"]
+                o_start = max(gs, c_start)
+                o_end = min(ge, c_end)
+                if o_end > o_start:
+                    length += o_end - o_start
+            rows.append({
+                "Item": item,
+                "Chunk": f"{c_start}-{c_end}",
+                "Chunk Start": c_start,
+                "Gap Length (m)": round(length, 2),
+            })
+    return pd.DataFrame(rows)
+
+
 # Layer hierarchy: bottom (index 0) to top (index -1). Top layer chainages must be within bottom.
 LAYER_ORDER = ["Embankment", "Subgrade", "GSB V", "GSB III", "WMM", "DBM", "BC"]
 
@@ -232,6 +257,7 @@ est_length = int(df["Est Length"].iloc[0]) if len(df) else 8000
 df_with_chain, merged_df, overlaps_df, gaps_df, merged_by_item = compute_merged_and_analysis(df, est_length)
 consistency_violations = check_layer_consistency(merged_by_item)
 chunk_df = chunk_coverage(merged_by_item, est_length, chunk_size=1000)
+gap_chunk_df = gap_length_by_chunk(gaps_df, est_length, chunk_size=1000)
 
 # Sidebar filters
 st.sidebar.header("Filters")
@@ -392,6 +418,42 @@ if summary_rows:
     summary_df = pd.DataFrame(summary_rows)
     st.markdown("**Overlap and gap length by item**")
     st.dataframe(summary_df, use_container_width=True, height=min(200, 50 * len(summary_df)), hide_index=True)
+
+# Gap length per km (0-1000, 1000-2000, ...) for each item
+if not gap_chunk_df.empty:
+    st.markdown("**Gap length per km (by item)** — total gap length in each 1000 m chainage chunk.")
+    # Pivot: Item x Chunk -> Gap Length (m)
+    pivot_gap = gap_chunk_df.pivot(index="Item", columns="Chunk", values="Gap Length (m)").fillna(0)
+    chunk_cols = [c for c in pivot_gap.columns if re.match(r"^\d+-\d+$", str(c))]
+    chunk_cols_sorted = sorted(chunk_cols, key=lambda x: int(x.split("-")[0]))
+    pivot_gap = pivot_gap.reindex(columns=chunk_cols_sorted)
+    pivot_gap["Total (m)"] = pivot_gap.sum(axis=1)
+    row_order = [i for i in LAYER_ORDER if i in pivot_gap.index] + [i for i in pivot_gap.index if i not in LAYER_ORDER]
+    pivot_gap = pivot_gap.reindex(row_order).reset_index()
+    # Ensure Item is leftmost: columns = [Item, chunk columns..., Total (m)]
+    col_order = ["Item"] + chunk_cols_sorted + ["Total (m)"]
+    pivot_gap = pivot_gap[col_order]
+    numeric_cols = chunk_cols_sorted + ["Total (m)"]
+    st.dataframe(pivot_gap.style.format("{:.2f}", subset=numeric_cols), use_container_width=True, height=min(350, 50 * len(pivot_gap) + 30), hide_index=True)
+    # Bar chart: gap length by chunk for each item (grouped)
+    fig_gap_chunk = px.bar(
+        gap_chunk_df,
+        x="Chunk",
+        y="Gap Length (m)",
+        color="Item",
+        barmode="group",
+        title="Gap length per 1000 m chunk (by item)",
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig_gap_chunk.update_layout(
+        xaxis_title="Chainage chunk (m)",
+        yaxis_title="Gap length (m)",
+        height=320,
+        margin=dict(t=40, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis={"categoryorder": "array", "categoryarray": chunk_cols_sorted if chunk_cols_sorted else gap_chunk_df["Chunk"].unique().tolist()},
+    )
+    st.plotly_chart(fig_gap_chunk, use_container_width=True)
 st.markdown("")  # spacing before tabs
 
 tab_merged, tab_overlaps, tab_gaps = st.tabs(["Merged chainages", "Overlaps", "Gaps"])
