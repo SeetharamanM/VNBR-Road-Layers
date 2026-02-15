@@ -394,6 +394,26 @@ if not progress_df.empty:
     )
     st.plotly_chart(fig_progress, use_container_width=True)
 
+# Coverage length per 1000 m chunk (all layers) — just below Overall Progress
+if not chunk_df.empty:
+    fig_chunk = px.bar(
+        chunk_df,
+        x="Chunk",
+        y="Length (m)",
+        color="Layer",
+        barmode="group",
+        title="Coverage length per 1000 m chunk (all layers)",
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig_chunk.update_layout(
+        xaxis_title="Chainage chunk (m)",
+        yaxis_title="Length (m)",
+        height=320,
+        margin=dict(t=40, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_chunk, use_container_width=True)
+
 # --- Overlap and Gap Analysis (after merging chainages) ---
 st.divider()
 st.subheader("Overlap & Gap Analysis (after merging chainages)")
@@ -574,26 +594,6 @@ if layers_with_data and chunks:
     for row in range(1, n_chunks + 1):
         fig.update_yaxes(categoryorder="array", categoryarray=layers_with_data, row=row, col=1)
     st.plotly_chart(fig, use_container_width=True)
-
-# Chunk bars: X = chunks (0-1000, 1000-2000, ...), grouped bars by layer
-if not chunk_df.empty:
-    fig_chunk = px.bar(
-        chunk_df,
-        x="Chunk",
-        y="Length (m)",
-        color="Layer",
-        barmode="group",
-        title="Coverage length per 1000 m chunk (all layers)",
-        color_discrete_sequence=px.colors.qualitative.Set2,
-    )
-    fig_chunk.update_layout(
-        xaxis_title="Chainage chunk (m)",
-        yaxis_title="Length (m)",
-        height=320,
-        margin=dict(t=40, b=40),
-        plot_bgcolor="rgba(0,0,0,0)",
-    )
-    st.plotly_chart(fig_chunk, use_container_width=True)
 
 st.divider()
 st.subheader("Data Table")
